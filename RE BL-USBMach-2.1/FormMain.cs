@@ -1,0 +1,1621 @@
+﻿namespace RE_BL_USBMach_2._1
+{
+    using System;
+    using System.Drawing;
+    using System.Windows.Forms;
+
+    public partial class FormMain : Form
+    {
+        // Load setting.
+        private readonly double stepsPerX = Properties.Settings.Default.StepsPerX; // The steps per mm for the X axis.
+        private readonly double stepsPerY = Properties.Settings.Default.StepsPerY; // The steps per mm for the Y axis.
+        private readonly double stepsPerZ = Properties.Settings.Default.StepsPerZ; // The steps per mm for the Z axis.
+        private readonly double stepsPerA = Properties.Settings.Default.StepsPerA; // The steps per mm for the A axis.
+        private readonly double stepsPerB = Properties.Settings.Default.StepsPerB; // The steps per mm for the B axis.
+
+        private readonly double velocityX = Properties.Settings.Default.VelocityX; // The velocity of the X axis.
+        private readonly double velocityY = Properties.Settings.Default.VelocityX; // The velocity of the Y axis.
+        private readonly double velocityZ = Properties.Settings.Default.VelocityX; // The velocity of the Z axis.
+        private readonly double velocityA = Properties.Settings.Default.VelocityX; // The velocity of the A axis.
+        private readonly double velocityB = Properties.Settings.Default.VelocityX; // The velocity of the B axis.
+
+        private readonly double accelerationX = Properties.Settings.Default.AccelerationX; // The acceleration of the X axis.
+        private readonly double accelerationY = Properties.Settings.Default.AccelerationY; // The acceleration of the X axis.
+        private readonly double accelerationZ = Properties.Settings.Default.AccelerationZ; // The acceleration of the X axis.
+        private readonly double accelerationA = Properties.Settings.Default.AccelerationA; // The acceleration of the X axis.
+        private readonly double accelerationB = Properties.Settings.Default.AccelerationB; // The acceleration of the X axis.
+
+        // Device to manage the incoming buffer on a separate thread.
+        private CNCDevice CNC;
+
+        // Label array to manage the display of incoming and outgoing frames.
+        private readonly Label[] InFrameLabels = new Label[64];
+        private readonly Label[] OutFrameLabels = new Label[64];
+
+        // The current state of the program.
+        private ProgramState programState = ProgramState.Unknown;
+
+        // Are we waiting on an expected frame.
+        private bool waiting = true;
+
+        // The last frame received.
+        private byte[] lastFrameIn = new byte[64] { 0x00, 0x00, 0x00, 0x00, 0x00, 
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, };
+
+        // Byte arrays are split unevenly like this to replicate the way they are displayed in WireShark window. This makes it easier to compare them. 
+        private byte?[] expected = new byte?[64] { null, null, null, null, null, 
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 
+            null, null, null, null, null, null, null, null, null, null, null };
+
+        #region Delegates
+
+        private void DoFrameInEvent(object sender, FrameInEventArgs e)
+        {
+            _ = BeginInvoke(new FrameInDelegate(ManageFrameIn), e.Data);
+        }
+
+        private delegate void FrameInDelegate(byte[] data);
+
+        private void DoFrameOutEvent(object sender, FrameOutEventArgs e)
+        {
+            _ = BeginInvoke(new FrameOutDelegate(ManageFrameOut), e.Data);
+        }
+
+        private delegate void FrameOutDelegate(byte[] data);
+
+        #endregion     
+
+        public FormMain()
+        {
+            InitializeComponent();
+
+            // Setup form.
+            SetupFrameLabelArrays();
+        }
+
+        private void FormMain_Shown(object sender, EventArgs e)
+        {
+            // Initialize the device.
+            CNC = new CNCDevice();
+
+            // Add events.
+            CNC.FrameInEvent += new EventHandler<FrameInEventArgs>(DoFrameInEvent);
+            CNC.FrameOutEvent += new EventHandler<FrameOutEventArgs>(DoFrameOutEvent);
+        }
+
+        // Process outgoing frames.
+        private void ManageFrameOut(byte[] data)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("Frame Outgoing:");
+
+            for (int i = 0; i < 8; i++)
+            {
+                Console.Write(data[i].ToString("X2") + " ");
+            }
+            Console.Write("   ");
+
+            for (int i = 8; i < 16; i++)
+            {
+                Console.Write(data[i].ToString("X2") + " ");
+            }
+            Console.Write("\n");
+
+            for (int i = 16; i < 24; i++)
+            {
+                Console.Write(data[i].ToString("X2") + " ");
+            }
+            Console.Write("   ");
+
+            for (int i = 24; i < 32; i++)
+            {
+                Console.Write(data[i].ToString("X2") + " ");
+            }
+            Console.Write("\n");
+
+            for (int i = 32; i < 40; i++)
+            {
+                Console.Write(data[i].ToString("X2") + " ");
+            }
+            Console.Write("   ");
+
+            for (int i = 40; i < 48; i++)
+            {
+                Console.Write(data[i].ToString("X2") + " ");
+            }
+            Console.Write("\n");
+
+            for (int i = 48; i < 56; i++)
+            {
+                Console.Write(data[i].ToString("X2") + " ");
+            }
+            Console.Write("   ");
+
+            for (int i = 56; i < 64; i++)
+            {
+                Console.Write(data[i].ToString("X2") + " ");
+            }
+            Console.Write("\n");
+
+            for (int i = 0; i < 64; i++)
+            {
+                OutFrameLabels[i].ForeColor = Color.DarkGray;
+                OutFrameLabels[i].Text = data[i].ToString("X2");
+            }
+        }
+
+        // Process incoming frames.
+        private void ManageFrameIn(byte[] data)
+        {
+            switch (data[63])
+            {
+                case 3:
+                    ReadAxes(data);
+                    break;
+
+                default:
+                    break;
+            }
+
+            if (waiting)
+            {
+                // Compare with expected.
+                waiting = false;
+
+                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.WriteLine("Frame Incoming:");
+
+                for (int i = 0; i < 8; i++)
+                {
+                    if (expected[i] == null)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Gray;
+                        InFrameLabels[i].ForeColor = Color.Gray;
+                    }
+                    else
+                    {
+                        if (expected[i] == data[i])
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            InFrameLabels[i].ForeColor = Color.Green;
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            InFrameLabels[i].ForeColor = Color.Red;
+                        }
+                    }
+                    Console.Write(data[i].ToString("X2") + " ");
+                    InFrameLabels[i].Text = data[i].ToString("X2");
+                }
+                Console.Write("   ");
+                for (int i = 8; i < 16; i++)
+                {
+                    if (expected[i] == null)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Gray;
+                        InFrameLabels[i].ForeColor = Color.Gray;
+                    }
+                    else
+                    {
+                        if (expected[i] == data[i])
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            InFrameLabels[i].ForeColor = Color.Green;
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            InFrameLabels[i].ForeColor = Color.Red;
+                        }
+                    }
+                    Console.Write(data[i].ToString("X2") + " ");
+                    InFrameLabels[i].Text = data[i].ToString("X2");
+                }
+                Console.Write("\n");
+
+                for (int i = 16; i < 24; i++)
+                {
+                    if (expected[i] == null)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Gray;
+                        InFrameLabels[i].ForeColor = Color.Gray;
+                    }
+                    else
+                    {
+                        if (expected[i] == data[i])
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            InFrameLabels[i].ForeColor = Color.Green;
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            InFrameLabels[i].ForeColor = Color.Red;
+                        }
+                    }
+                    Console.Write(data[i].ToString("X2") + " ");
+                    InFrameLabels[i].Text = data[i].ToString("X2");
+                }
+                Console.Write("   ");
+                for (int i = 24; i < 32; i++)
+                {
+                    if (expected[i] == null)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Gray;
+                        InFrameLabels[i].ForeColor = Color.Gray;
+                    }
+                    else
+                    {
+                        if (expected[i] == data[i])
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            InFrameLabels[i].ForeColor = Color.Green;
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            InFrameLabels[i].ForeColor = Color.Red;
+                        }
+                    }
+                    Console.Write(data[i].ToString("X2") + " ");
+                    InFrameLabels[i].Text = data[i].ToString("X2");
+                }
+                Console.Write("\n");
+
+                for (int i = 32; i < 40; i++)
+                {
+                    if (expected[i] == null)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Gray;
+                        InFrameLabels[i].ForeColor = Color.Gray;
+                    }
+                    else
+                    {
+                        if (expected[i] == data[i])
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            InFrameLabels[i].ForeColor = Color.Green;
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            InFrameLabels[i].ForeColor = Color.Red;
+                        }
+                    }
+                    Console.Write(data[i].ToString("X2") + " ");
+                    InFrameLabels[i].Text = data[i].ToString("X2");
+                }
+                Console.Write("   ");
+                for (int i = 40; i < 48; i++)
+                {
+                    if (expected[i] == null)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Gray;
+                        InFrameLabels[i].ForeColor = Color.Gray;
+                    }
+                    else
+                    {
+                        if (expected[i] == data[i])
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            InFrameLabels[i].ForeColor = Color.Green;
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            InFrameLabels[i].ForeColor = Color.Red;
+                        }
+                    }
+                    Console.Write(data[i].ToString("X2") + " ");
+                    InFrameLabels[i].Text = data[i].ToString("X2");
+                }
+                Console.Write("\n");
+
+                for (int i = 48; i < 56; i++)
+                {
+                    if (expected[i] == null)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Gray;
+                        InFrameLabels[i].ForeColor = Color.Gray;
+                    }
+                    else
+                    {
+                        if (expected[i] == data[i])
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            InFrameLabels[i].ForeColor = Color.Green;
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            InFrameLabels[i].ForeColor = Color.Red;
+                        }
+                    }
+                    Console.Write(data[i].ToString("X2") + " ");
+                    InFrameLabels[i].Text = data[i].ToString("X2");
+                }
+                Console.Write("   ");
+                for (int i = 56; i < 64; i++)
+                {
+                    if (expected[i] == null)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Gray;
+                        InFrameLabels[i].ForeColor = Color.Gray;
+                    }
+                    else
+                    {
+                        if (expected[i] == data[i])
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            InFrameLabels[i].ForeColor = Color.Green;
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            InFrameLabels[i].ForeColor = Color.Red;
+                        }
+                    }
+                    Console.Write(data[i].ToString("X2") + " ");
+                    InFrameLabels[i].Text = data[i].ToString("X2");
+                }
+                Console.Write("\n");
+
+                // Manage next frame.
+                switch (programState)
+                {
+                    case ProgramState.Idle:
+                        SendIdleFrame();
+                        break;
+
+                    case ProgramState.Jogging:
+                        SendIdleFrame();
+                        break;
+
+                    case ProgramState.CmdStop:
+                        SendIdleFrame();
+                        break;
+
+                    case ProgramState.CmdXPlus:
+                        SendJoggingFrame();
+                        break;
+
+                    case ProgramState.CmdXMinus:
+                        SendJoggingFrame();
+                        break;
+
+                    case ProgramState.CmdYPlus:
+                        SendJoggingFrame();
+                        break;
+
+                    case ProgramState.CmdYMinus:
+                        SendJoggingFrame();
+                        break;
+
+                    case ProgramState.CmdZPlus:
+                        SendJoggingFrame();
+                        break;
+
+                    case ProgramState.CmdZMinus:
+                        SendJoggingFrame();
+                        break;
+
+                    case ProgramState.CmdAPlus:
+                        SendJoggingFrame();
+                        break;
+
+                    case ProgramState.CmdAMinus:
+                        SendJoggingFrame();
+                        break;
+
+                    case ProgramState.CmdBPlus:
+                        SendJoggingFrame();
+                        break;
+
+                    case ProgramState.CmdBMinus:
+                        SendJoggingFrame();
+                        break;
+
+                    case ProgramState.InitializeStep1:
+                        InitializeStep2();
+                        break;
+
+                    case ProgramState.InitializeStep2:
+                        InitializeStep3();
+                        break;
+
+                    case ProgramState.InitializeStep3:
+                        InitializeStep4();
+                        break;
+
+                    case ProgramState.InitializeStep4:
+                        ClearEmergencyStopStep1();
+                        break;
+
+                    case ProgramState.ClearEmergencyStopStep1:
+                        ClearEmergencyStopStep2();
+                        break;
+
+                    case ProgramState.ClearEmergencyStopStep2:
+                        ClearEmergencyStopStep3();
+                        break;
+
+                    case ProgramState.ClearEmergencyStopStep3:
+                        ClearEmergencyStopStep4();
+                        break;
+
+                    case ProgramState.ClearEmergencyStopStep4:
+                        SendIdleFrame();
+                        break;
+
+                    case ProgramState.SetEmergencyStopStep1:
+                        SetEmergencyStopStep2();
+                        break;
+
+                    case ProgramState.SetEmergencyStopStep2:
+                        SetEmergencyStopStep3();
+                        break;
+
+                    case ProgramState.SetEmergencyStopStep3:
+                        SetEmergencyStopStep4();
+                        break;
+
+                    case ProgramState.SetEmergencyStopStep4:
+                        SendIdleFrame();
+                        break;
+
+                    case ProgramState.Unknown:
+                        InitializeStep1();
+                        break;
+                }
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.WriteLine("Frame Incoming:");
+
+                for (int i = 0; i < 8; i++)
+                {
+                    Console.Write(data[i].ToString("X2") + " ");
+                }
+                Console.Write("   ");
+
+                for (int i = 8; i < 16; i++)
+                {
+                    Console.Write(data[i].ToString("X2") + " ");
+                }
+                Console.Write("\n");
+
+                for (int i = 16; i < 24; i++)
+                {
+                    Console.Write(data[i].ToString("X2") + " ");
+                }
+                Console.Write("   ");
+
+                for (int i = 24; i < 32; i++)
+                {
+                    Console.Write(data[i].ToString("X2") + " ");
+                }
+                Console.Write("\n");
+
+                for (int i = 32; i < 40; i++)
+                {
+                    Console.Write(data[i].ToString("X2") + " ");
+                }
+                Console.Write("   ");
+
+                for (int i = 40; i < 48; i++)
+                {
+                    Console.Write(data[i].ToString("X2") + " ");
+                }
+                Console.Write("\n");
+
+                for (int i = 48; i < 56; i++)
+                {
+                    Console.Write(data[i].ToString("X2") + " ");
+                }
+                Console.Write("   ");
+
+                for (int i = 56; i < 64; i++)
+                {
+                    Console.Write(data[i].ToString("X2") + " ");
+                }
+                Console.Write("\n");
+
+                for (int i = 0; i < 64; i++)
+                {
+                    InFrameLabels[i].ForeColor = Color.Gray;
+                    InFrameLabels[i].Text = data[i].ToString("X2");
+                }
+            }
+
+            lastFrameIn = data;
+        }
+
+        // Send an idle frame to the card.
+        private void SendIdleFrame()
+        {
+            programState = ProgramState.Idle;
+
+            waiting = true;
+
+            // Byte 0 Spindle enabled?
+            // Byte 1 Spindle toggle.
+            // Byte 4 Spindle speed?
+            // Byte 7 02 mm, 3f inches.
+            byte[] idleData = new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0x80, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, };
+            
+            for (int i = 0; i < expected.Length; i++)
+            {
+                expected[i] = lastFrameIn[i];
+            }
+
+            CNC.SendFrame(idleData);
+        }
+
+        // Send an idle frame during the jogging state.
+        private void SendJoggingFrame()
+        {
+            programState = ProgramState.Jogging;
+
+            waiting = true;
+
+            byte[] joggingData = new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, };
+
+            for (int i = 0; i < expected.Length; i++)
+            {
+                expected[i] = lastFrameIn[i];
+            }
+
+            CNC.SendFrame(joggingData);
+        }
+
+        // Read the axes value from the data and display them on the form.
+        private void ReadAxes(byte[] data)
+        {
+            if (data[7] == 255)
+            {
+                double result = 16777215 - (data[4] + (256 * data[5]) + (65536 * data[6]));
+                result /= stepsPerX;
+                LabelPositionX.Text = "-" + result.ToString("0.000");
+            }
+            else
+            {
+                double result = data[4] + (256 * data[5]) + (65536 * data[6]);
+                result /= stepsPerX;
+                LabelPositionX.Text = result.ToString("0.000");
+            }
+
+            if (data[11] == 255)
+            {
+                double result = 16777215 - (data[8] + (256 * data[9]) + (65536 * data[10]));
+                result /= stepsPerY;
+                label5.Text = "-" + result.ToString("0.000");
+            }
+            else
+            {
+                double result = data[8] + (256 * data[9]) + (65536 * data[10]);
+                result /= stepsPerY;
+                label5.Text = result.ToString("0.000");
+            }
+
+            if (data[15] == 255)
+            {
+                double result = 16777215 - (data[12] + (256 * data[13]) + (65536 * data[14]));
+                result /= stepsPerZ;
+                label6.Text = "-" + result.ToString("0.000");
+            }
+            else
+            {
+                double result = data[12] + (256 * data[13]) + (65536 * data[14]);
+                result /= stepsPerZ;
+                label6.Text = result.ToString("0.000");
+            }
+
+            if (data[19] == 255)
+            {
+                double result = 16777215 - (data[16] + (256 * data[17]) + (65536 * data[18]));
+                result /= stepsPerA;
+                label8.Text = "-" + result.ToString("0.000");
+            }
+            else
+            {
+                double result = data[16] + (256 * data[17]) + (65536 * data[18]);
+                result /= stepsPerA;
+                label8.Text = result.ToString("0.000");
+            }
+
+            if (data[23] == 255)
+            {
+                double result = 16777215 - (data[20] + (256 * data[21]) + (65536 * data[22]));
+                result /= stepsPerB;
+                label10.Text = "-" + result.ToString("0.000");
+            }
+            else
+            {
+                double result = data[20] + (256 * data[21]) + (65536 * data[22]);
+                result /= stepsPerB;
+                label10.Text = result.ToString("0.000");
+            }
+        }
+
+        private void InitializeStep1()
+        {
+            programState = ProgramState.InitializeStep1;
+            waiting = true;
+
+            // No idea? 
+            // Byte 63 = Setup mode?
+            expected = new byte?[64] { 0xa0, 0x00, 0x00, 0x00, 0x66,
+                0xc9, 0x33, 0x01, 0x36, 0xff, 0x68, 0x06, 0x34, 0x4e, 0x39, 0x37, 0x11, 0x38, 0x23, 0x57, 0x15,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x62 };
+
+            // No idea? 
+            // Byte 63 = Setup mode?
+            CNC.SendFrame(new byte[64] { 0x19, 0x19, 0x00, 0x19, 0x19,
+                0x00, 0x19, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x17, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x1f, 0x1f, 0x1f, 0x10, 0x1f, 0x1f, 0x00, 0x1f, 0xba, 0x62 });
+        }
+
+        private void InitializeStep2()
+        {
+            programState = ProgramState.InitializeStep2;
+            waiting = true;
+
+            expected = new byte?[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 };
+
+            // No data besides byte 63. Most likely just a ack frame for the response from the device in Initialize step 1.
+            CNC.SendFrame(new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02 });
+
+            // This frame sends axes configuration values.
+            // Bytes 0,1 = X axis steps per.
+            // Bytes 2,3 = Y axis steps per.
+            // Bytes 4,5 = Z axis steps per.
+            // Bytes 6,7 = A axis steps per.
+            // Bytes 8,9 = B axis steps per.
+            // Byte 10,11,12,13 X axis steps per * velocity / 60.
+            // Byte 14,15,16,17 Y axis steps per * velocity / 60.
+            // Byte 18,19,20,21 Z axis steps per * velocity / 60.
+            // Byte 22,23,24,25 A axis steps per * velocity / 60.
+            // Byte 26,27,28,29 B axis steps per * velocity / 60.
+            // Byte 30,31,32,33 X axis steps per * acceleration.
+            // Byte 34,35,36,37 Y axis steps per * acceleration.
+            // Byte 38,39,40,41 Z axis steps per * acceleration.
+            // Byte 42,43,44,45 A axis steps per * acceleration.
+            // Byte 46,47,48,49 B axis steps per * acceleration.
+            byte[] config = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xe4,
+                0xf9, 0x19, 0x00, 0x6b, 0x5c, 0xd9, 0x78, 0x18, 0x07, 0x00, 0x0e };
+
+            byte[] data = BitConverter.GetBytes((int)stepsPerX);
+            config[0] = data[0];
+            config[1] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerY);
+            config[2] = data[0];
+            config[3] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerZ);
+            config[4] = data[0];
+            config[5] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerA);
+            config[6] = data[0];
+            config[7] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerB);
+            config[8] = data[0];
+            config[9] = data[1];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerX * velocityX / 60));
+            config[10] = data[0];
+            config[11] = data[1];
+            config[12] = data[2];
+            config[13] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerY * velocityY / 60));
+            config[14] = data[0];
+            config[15] = data[1];
+            config[16] = data[2];
+            config[17] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerZ * velocityZ / 60));
+            config[18] = data[0];
+            config[19] = data[1];
+            config[20] = data[2];
+            config[21] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerA * velocityA / 60));
+            config[22] = data[0];
+            config[23] = data[1];
+            config[24] = data[2];
+            config[25] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerB * velocityB / 60));
+            config[26] = data[0];
+            config[27] = data[1];
+            config[28] = data[2];
+            config[29] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerX * accelerationX));
+            config[30] = data[0];
+            config[31] = data[1];
+            config[32] = data[2];
+            config[33] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerY * accelerationY));
+            config[34] = data[0];
+            config[35] = data[1];
+            config[36] = data[2];
+            config[37] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerZ * accelerationZ));
+            config[38] = data[0];
+            config[39] = data[1];
+            config[40] = data[2];
+            config[41] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerA * accelerationA));
+            config[42] = data[0];
+            config[43] = data[1];
+            config[44] = data[2];
+            config[45] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerB * accelerationB));
+            config[46] = data[0];
+            config[47] = data[1];
+            config[48] = data[2];
+            config[49] = data[3];
+
+            CNC.SendFrame(config);
+
+            // No idea yet.
+            CNC.SendFrame(new byte[] { 0x00, 0x02, 0x04, 0x06, 0x08,
+                0x01, 0x03, 0x05, 0x07, 0x09, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x0b, 0x0c, 0x0d,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x82, 0x07, 0x00, 0x00, 0x82, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f });
+
+            // No idea. But byte 63 seems to be setting the device ready for commands?
+            CNC.SendFrame(new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void InitializeStep3()
+        {
+            programState = ProgramState.InitializeStep3;
+            waiting = true;
+
+            // No idea.
+            expected = new byte?[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 };
+
+            // No idea.
+            CNC.SendFrame(new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void InitializeStep4()
+        {
+            programState = ProgramState.InitializeStep4;
+            waiting = true;
+
+            // No idea.
+            expected = new byte?[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 };
+
+            // No idea.
+            CNC.SendFrame(new byte[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02 });
+
+            // No idea.
+            CNC.SendFrame(new byte[] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0x80, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ClearEmergencyStopStep1()
+        {
+            waiting = true;
+
+            // No idea? 
+            // Byte 63 = Setup mode?
+            expected = new byte?[64] { 0xa0, 0x00, 0x00, 0x00, 0x66,
+                0xc9, 0x33, 0x01, 0x36, 0xff, 0x68, 0x06, 0x34, 0x4e, 0x39, 0x37, 0x11, 0x38, 0x23, 0x57, 0x15,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x62 };
+
+            // No idea? 
+            // Byte 63 = Setup mode?
+            CNC.SendFrame(new byte[64] { 0x19, 0x19, 0x00, 0x19, 0x19,
+                0x00, 0x19, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x17, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x1f, 0x1f, 0x1f, 0x10, 0x1f, 0x1f, 0x00, 0x1f, 0xba, 0x62 });
+        }
+
+        private void ClearEmergencyStopStep2()
+        {
+            waiting = true;
+
+            expected = new byte?[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 };
+
+            CNC.SendFrame(new byte[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02 });
+
+            // This frame sends axes configuration values.
+            // Bytes 0,1 = X axis steps per.
+            // Bytes 2,3 = Y axis steps per.
+            // Bytes 4,5 = Z axis steps per.
+            // Bytes 6,7 = A axis steps per.
+            // Bytes 8,9 = B axis steps per.
+            // Byte 10,11,12,13 X axis steps per * velocity / 60.
+            // Byte 14,15,16,17 Y axis steps per * velocity / 60.
+            // Byte 18,19,20,21 Z axis steps per * velocity / 60.
+            // Byte 22,23,24,25 A axis steps per * velocity / 60.
+            // Byte 26,27,28,29 B axis steps per * velocity / 60.
+            // Byte 30,31,32,33 X axis steps per * acceleration.
+            // Byte 34,35,36,37 Y axis steps per * acceleration.
+            // Byte 38,39,40,41 Z axis steps per * acceleration.
+            // Byte 42,43,44,45 A axis steps per * acceleration.
+            // Byte 46,47,48,49 B axis steps per * acceleration.
+            byte[] config = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xe4,
+                0xf9, 0x19, 0x00, 0x6b, 0x5c, 0xd9, 0x78, 0x18, 0x07, 0x00, 0x0e };
+
+            byte[] data = BitConverter.GetBytes((int)stepsPerX);
+            config[0] = data[0];
+            config[1] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerY);
+            config[2] = data[0];
+            config[3] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerZ);
+            config[4] = data[0];
+            config[5] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerA);
+            config[6] = data[0];
+            config[7] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerB);
+            config[8] = data[0];
+            config[9] = data[1];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerX * velocityX / 60));
+            config[10] = data[0];
+            config[11] = data[1];
+            config[12] = data[2];
+            config[13] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerY * velocityY / 60));
+            config[14] = data[0];
+            config[15] = data[1];
+            config[16] = data[2];
+            config[17] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerZ * velocityZ / 60));
+            config[18] = data[0];
+            config[19] = data[1];
+            config[20] = data[2];
+            config[21] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerA * velocityA / 60));
+            config[22] = data[0];
+            config[23] = data[1];
+            config[24] = data[2];
+            config[25] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerB * velocityB / 60));
+            config[26] = data[0];
+            config[27] = data[1];
+            config[28] = data[2];
+            config[29] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerX * accelerationX));
+            config[30] = data[0];
+            config[31] = data[1];
+            config[32] = data[2];
+            config[33] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerY * accelerationY));
+            config[34] = data[0];
+            config[35] = data[1];
+            config[36] = data[2];
+            config[37] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerZ * accelerationZ));
+            config[38] = data[0];
+            config[39] = data[1];
+            config[40] = data[2];
+            config[41] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerA * accelerationA));
+            config[42] = data[0];
+            config[43] = data[1];
+            config[44] = data[2];
+            config[45] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerB * accelerationB));
+            config[46] = data[0];
+            config[47] = data[1];
+            config[48] = data[2];
+            config[49] = data[3];
+
+            CNC.SendFrame(config);
+
+            // No idea yet.
+            CNC.SendFrame(new byte[] { 0x00, 0x02, 0x04, 0x06, 0x08,
+                0x01, 0x03, 0x05, 0x07, 0x09, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x0b, 0x0c, 0x0d,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x82, 0x07, 0x00, 0x00, 0x82, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f });
+
+            // No idea. But byte 63 seems to be setting the device ready for commands?
+            CNC.SendFrame(new byte[] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0x80, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ClearEmergencyStopStep3()
+        {
+            waiting = true;
+
+            // No idea.
+            expected = new byte?[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 };
+
+            // No idea.
+            CNC.SendFrame(new byte[] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0x80, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ClearEmergencyStopStep4()
+        {
+            waiting = true;
+
+            // No idea.
+            expected = new byte?[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 };
+
+            // No idea.
+            CNC.SendFrame(new byte[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02 });
+
+            // No idea.
+            CNC.SendFrame(new byte[] { 0x82, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0x80, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void SetEmergencyStopStep1()
+        {
+            waiting = true;
+
+            // No idea? 
+            // Byte 63 = Setup mode?
+            expected = new byte?[64] { 0xa0, 0x00, 0x00, 0x00, 0x66,
+                0xc9, 0x33, 0x01, 0x36, 0xff, 0x68, 0x06, 0x34, 0x4e, 0x39, 0x37, 0x11, 0x38, 0x23, 0x57, 0x15,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x62 };
+
+            // No idea? 
+            // Byte 63 = Setup mode?
+            CNC.SendFrame(new byte[64] { 0x19, 0x19, 0x00, 0x19, 0x19,
+                0x00, 0x19, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x17, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x1f, 0x1f, 0x1f, 0x10, 0x1f, 0x1f, 0x00, 0x1f, 0xba, 0x62 });
+        }
+
+        private void SetEmergencyStopStep2()
+        {
+            waiting = true;
+
+            expected = new byte?[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 };
+
+            // No data besides byte 63. Most likely just a ack frame for the response from the device in Initialize step 1.
+            CNC.SendFrame(new byte[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02 });
+
+            // This frame sends axes configuration values.
+            // Bytes 0,1 = X axis steps per.
+            // Bytes 2,3 = Y axis steps per.
+            // Bytes 4,5 = Z axis steps per.
+            // Bytes 6,7 = A axis steps per.
+            // Bytes 8,9 = B axis steps per.
+            // Byte 10,11,12,13 X axis steps per * velocity / 60.
+            // Byte 14,15,16,17 Y axis steps per * velocity / 60.
+            // Byte 18,19,20,21 Z axis steps per * velocity / 60.
+            // Byte 22,23,24,25 A axis steps per * velocity / 60.
+            // Byte 26,27,28,29 B axis steps per * velocity / 60.
+            // Byte 30,31,32,33 X axis steps per * acceleration.
+            // Byte 34,35,36,37 Y axis steps per * acceleration.
+            // Byte 38,39,40,41 Z axis steps per * acceleration.
+            // Byte 42,43,44,45 A axis steps per * acceleration.
+            // Byte 46,47,48,49 B axis steps per * acceleration.
+            byte[] config = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xe4,
+                0xf9, 0x19, 0x00, 0x6b, 0x5c, 0xd9, 0x78, 0x18, 0x07, 0x00, 0x0e };
+
+            byte[] data = BitConverter.GetBytes((int)stepsPerX);
+            config[0] = data[0];
+            config[1] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerY);
+            config[2] = data[0];
+            config[3] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerZ);
+            config[4] = data[0];
+            config[5] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerA);
+            config[6] = data[0];
+            config[7] = data[1];
+
+            data = BitConverter.GetBytes((int)stepsPerB);
+            config[8] = data[0];
+            config[9] = data[1];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerX * velocityX / 60));
+            config[10] = data[0];
+            config[11] = data[1];
+            config[12] = data[2];
+            config[13] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerY * velocityY / 60));
+            config[14] = data[0];
+            config[15] = data[1];
+            config[16] = data[2];
+            config[17] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerZ * velocityZ / 60));
+            config[18] = data[0];
+            config[19] = data[1];
+            config[20] = data[2];
+            config[21] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerA * velocityA / 60));
+            config[22] = data[0];
+            config[23] = data[1];
+            config[24] = data[2];
+            config[25] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerB * velocityB / 60));
+            config[26] = data[0];
+            config[27] = data[1];
+            config[28] = data[2];
+            config[29] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerX * accelerationX));
+            config[30] = data[0];
+            config[31] = data[1];
+            config[32] = data[2];
+            config[33] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerY * accelerationY));
+            config[34] = data[0];
+            config[35] = data[1];
+            config[36] = data[2];
+            config[37] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerZ * accelerationZ));
+            config[38] = data[0];
+            config[39] = data[1];
+            config[40] = data[2];
+            config[41] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerA * accelerationA));
+            config[42] = data[0];
+            config[43] = data[1];
+            config[44] = data[2];
+            config[45] = data[3];
+
+            data = BitConverter.GetBytes((Int32)(stepsPerB * accelerationB));
+            config[46] = data[0];
+            config[47] = data[1];
+            config[48] = data[2];
+            config[49] = data[3];
+
+            CNC.SendFrame(config);
+
+            // No idea yet.
+            CNC.SendFrame(new byte[] { 0x00, 0x02, 0x04, 0x06, 0x08,
+                0x01, 0x03, 0x05, 0x07, 0x09, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x0b, 0x0c, 0x0d,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x82, 0x07, 0x00, 0x00, 0x82, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f });
+
+            // No idea. But byte 63 seems to be setting the device ready for commands?
+            CNC.SendFrame(new byte[] { 0x82, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0x80, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void SetEmergencyStopStep3()
+        {
+            waiting = true;
+
+            // No idea.
+            expected = new byte?[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 };
+
+            // No idea.
+            CNC.SendFrame(new byte[] { 0x82, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0x80, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void SetEmergencyStopStep4()
+        {
+            waiting = true;
+
+            // No idea.
+            expected = new byte?[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 };
+
+            // No idea.
+            CNC.SendFrame(new byte[] { 0x6f, 0x80, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x8d, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02 });
+
+            // No idea.
+            CNC.SendFrame(new byte[] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0x80, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void SetupFrameLabelArrays()
+        {
+            int i = 0;
+            for (int y = 0; y != 4; y++)
+            {
+                for (int x = 0; x != 8; x++)
+                {
+                    InFrameLabels[i] = new Label
+                    {
+                        Size = new Size(32, 42),
+                        Location = new Point(x * 22 + 12, y * 22 + 2),
+                        Text = "00",
+                        Name = "InFrameLabels" + i.ToString(),
+                        AutoSize = true
+                    };
+
+                    PanelIncomingFrame.Controls.Add(InFrameLabels[i++]);
+                }
+
+                for (int x = 8; x != 16; x++)
+                {
+                    InFrameLabels[i] = new Label
+                    {
+                        Size = new Size(32, 42),
+                        Location = new Point(x * 22 + 40, y * 22 + 2),
+                        Text = "00",
+                        Name = "InFrameLabels" + i.ToString(),
+                        AutoSize = true
+                    };
+
+                    PanelIncomingFrame.Controls.Add(InFrameLabels[i++]);
+                }
+            }
+
+            i = 0;
+            for (int y = 0; y != 4; y++)
+            {
+                for (int x = 0; x != 8; x++)
+                {
+                    OutFrameLabels[i] = new Label
+                    {
+                        Size = new Size(32, 42),
+                        Location = new Point(x * 22 + 12, y * 22 + 2),
+                        Text = "00",
+                        Name = "OutFrameLabels" + i.ToString(),
+                        AutoSize = true
+                    };
+
+                    PanelOutgoingFrame.Controls.Add(OutFrameLabels[i++]);
+                }
+
+                for (int x = 8; x != 16; x++)
+                {
+                    OutFrameLabels[i] = new Label
+                    {
+                        Size = new Size(32, 42),
+                        Location = new Point(x * 22 + 40, y * 22 + 2),
+                        Text = "00",
+                        Name = "OutFrameLabels" + i.ToString(),
+                        AutoSize = true
+                    };
+
+                    PanelOutgoingFrame.Controls.Add(OutFrameLabels[i++]);
+                }
+            }
+        }
+
+        private void ButtonInitialize_Click(object sender, EventArgs e)
+        {
+            InitializeStep1();
+        }
+
+        private void ButtonSetEmergencyStop_Click(object sender, EventArgs e)
+        {
+            SetEmergencyStopStep1();
+        }
+
+        private void ButtonClearEmergencyStop_Click(object sender, EventArgs e)
+        {
+            ClearEmergencyStopStep1();
+        }
+
+        private void ButtonStop_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdStop;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ButtonXPlus_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdXPlus;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x00, 0x00, 0x00, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x7f, 0x96, 0x98, 0x00, 0xb8, 0x88, 0x00, 0x00, 0xc0, 0xd4, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ButtonXMinus_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdXMinus;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x7f, 0x96, 0x98, 0x00, 0xb8, 0x88, 0x00, 0x00, 0xc0, 0xd4, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ButtonYPlus_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdYPlus;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x01, 0x00, 0x00, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x7f, 0x96, 0x98, 0x00, 0xb8, 0x88, 0x00, 0x00, 0xc0, 0xd4, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ButtonYMinus_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdYMinus;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x01, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x7f, 0x96, 0x98, 0x00, 0xb8, 0x88, 0x00, 0x00, 0xc0, 0xd4, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ButtonZPlus_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdZPlus;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x02, 0x00, 0x00, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x7f, 0x96, 0x98, 0x00, 0xb8, 0x88, 0x00, 0x00, 0xc0, 0xd4, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ButtonZMinus_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdZMinus;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x02, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x7f, 0x96, 0x98, 0x00, 0xb8, 0x88, 0x00, 0x00, 0xc0, 0xd4, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ButtonAPlus_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdAPlus;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x03, 0x00, 0x00, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x7f, 0x96, 0x98, 0x00, 0xb8, 0x88, 0x00, 0x00, 0xc0, 0xd4, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ButtonAMinus_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdAMinus;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x03, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x7f, 0x96, 0x98, 0x00, 0xb8, 0x88, 0x00, 0x00, 0xc0, 0xd4, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ButtonBPlus_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdBPlus;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x04, 0x00, 0x00, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x7f, 0x96, 0x98, 0x00, 0xb8, 0x88, 0x00, 0x00, 0xc0, 0xd4, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+
+        private void ButtonBMinus_Click(object sender, EventArgs e)
+        {
+            programState = ProgramState.CmdBMinus;
+
+            waiting = true;
+
+            expected = new byte?[] { null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null };
+
+            CNC.SendFrame(new byte[64] { 0x04, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x7f, 0x96, 0x98, 0x00, 0xb8, 0x88, 0x00, 0x00, 0xc0, 0xd4, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b });
+
+            CNC.SendFrame(new byte[64] { 0x80, 0x07, 0x00, 0x00, 0x2b,
+                0x00, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x12, 0x83, 0x3a, 0x00, 0x6f,
+                0x12, 0x83, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 });
+        }
+    }
+}

@@ -1,0 +1,51 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="RE_BL_USBMach_2._1.Properties" GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <Setting Name="StepsPerX" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">640</Value>
+    </Setting>
+    <Setting Name="StepsPerY" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">640</Value>
+    </Setting>
+    <Setting Name="StepsPerZ" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">640</Value>
+    </Setting>
+    <Setting Name="StepsPerA" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">640</Value>
+    </Setting>
+    <Setting Name="StepsPerB" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">640</Value>
+    </Setting>
+    <Setting Name="VelocityX" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">2100</Value>
+    </Setting>
+    <Setting Name="VelocityY" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">2100</Value>
+    </Setting>
+    <Setting Name="VelocityZ" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">2100</Value>
+    </Setting>
+    <Setting Name="VelocityA" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">2100</Value>
+    </Setting>
+    <Setting Name="VelocityB" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">2100</Value>
+    </Setting>
+    <Setting Name="AccelerationX" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">120</Value>
+    </Setting>
+    <Setting Name="AccelerationY" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">120</Value>
+    </Setting>
+    <Setting Name="AccelerationZ" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">120</Value>
+    </Setting>
+    <Setting Name="AccelerationA" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">120</Value>
+    </Setting>
+    <Setting Name="AccelerationB" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">120</Value>
+    </Setting>
+  </Settings>
+</SettingsFile>
